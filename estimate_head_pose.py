@@ -9,6 +9,7 @@ from argparse import ArgumentParser
 from multiprocessing import Process, Queue
 
 import cv2
+import os
 import numpy as np
 
 from mark_detector import MarkDetector
@@ -31,6 +32,8 @@ parser.add_argument("--cam", type=int, default=None,
                     help="The webcam index.")
 parser.add_argument("--out", type=str, default=None,
                     help="Video output path. ")
+parser.add_argument("--input_path", type=str, default=None,
+                    help="input videos path. ")
 args = parser.parse_args()
 
 
@@ -86,86 +89,92 @@ def main():
 
     cnt = 0
 
-    while True:
-        # Read frame, crop it, flip it, suits your needs.
-        frame_got, frame = cap.read()
-        if frame_got is False:
-            break
+    input_path = args.input_path
+    listdir = os.listdir(input_path)
+    for v_name in listdir:
+        v_path = os.path.join(input_path, v_name)
+        cap = cv2.VideoCapture(v_path)
 
-        # Crop it if frame is larger than expected.
-        # frame = frame[0:480, 300:940]
+        while True:
+            # Read frame, crop it, flip it, suits your needs.
+            frame_got, frame = cap.read()
+            if frame_got is False:
+                break
 
-        # If frame comes from webcam, flip it so it looks like a mirror.
-        if video_src == 0:
-            frame = cv2.flip(frame, 2)
+            # Crop it if frame is larger than expected.
+            # frame = frame[0:480, 300:940]
 
-        # Pose estimation by 3 steps:
-        # 1. detect face;
-        # 2. detect landmarks;
-        # 3. estimate pose
+            # If frame comes from webcam, flip it so it looks like a mirror.
+            if video_src == 0:
+                frame = cv2.flip(frame, 2)
 
-        # Feed frame to image queue.
-        img_queue.put(frame)
+            # Pose estimation by 3 steps:
+            # 1. detect face;
+            # 2. detect landmarks;
+            # 3. estimate pose
 
-        # Get face from box queue.
-        facebox = box_queue.get()
+            # Feed frame to image queue.
+            img_queue.put(frame)
 
-        if facebox is not None:
-            # Detect landmarks from image of 128x128.
-            face_img = frame[facebox[1]: facebox[3],
-                             facebox[0]: facebox[2]]
-            face_img = cv2.resize(face_img, (CNN_INPUT_SIZE, CNN_INPUT_SIZE))
-            face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
+            # Get face from box queue.
+            facebox = box_queue.get()
 
-            tm.start()
-            marks = mark_detector.detect_marks(face_img)
-            tm.stop()
+            if facebox is not None:
+                # Detect landmarks from image of 128x128.
+                face_img = frame[facebox[1]: facebox[3],
+                           facebox[0]: facebox[2]]
+                face_img = cv2.resize(face_img, (CNN_INPUT_SIZE, CNN_INPUT_SIZE))
+                face_img = cv2.cvtColor(face_img, cv2.COLOR_BGR2RGB)
 
-            # Convert the marks locations from local CNN to global image.
-            marks *= (facebox[2] - facebox[0])
-            marks[:, 0] += facebox[0]
-            marks[:, 1] += facebox[1]
+                tm.start()
+                marks = mark_detector.detect_marks(face_img)
+                tm.stop()
 
-            # Uncomment following line to show raw marks.
-            # mark_detector.draw_marks(frame, marks, color=(0, 255, 0))
+                # Convert the marks locations from local CNN to global image.
+                marks *= (facebox[2] - facebox[0])
+                marks[:, 0] += facebox[0]
+                marks[:, 1] += facebox[1]
 
-            # Uncomment following line to show facebox.
-            # mark_detector.draw_box(frame, [facebox])
+                # Uncomment following line to show raw marks.
+                # mark_detector.draw_marks(frame, marks, color=(0, 255, 0))
 
-            # Try pose estimation with 68 points.
-            pose = pose_estimator.solve_pose_by_68_points(marks)
+                # Uncomment following line to show facebox.
+                # mark_detector.draw_box(frame, [facebox])
 
-            # Stabilize the pose.
-            steady_pose = []
-            pose_np = np.array(pose).flatten()
-            for value, ps_stb in zip(pose_np, pose_stabilizers):
-                ps_stb.update([value])
-                steady_pose.append(ps_stb.state[0])
-            steady_pose = np.reshape(steady_pose, (-1, 3))
+                # Try pose estimation with 68 points.
+                pose = pose_estimator.solve_pose_by_68_points(marks)
 
-            # Uncomment following line to draw pose annotation on frame.
-            # pose_estimator.draw_annotation_box(
-            #     frame, pose[0], pose[1], color=(255, 128, 128))
+                # Stabilize the pose.
+                steady_pose = []
+                pose_np = np.array(pose).flatten()
+                for value, ps_stb in zip(pose_np, pose_stabilizers):
+                    ps_stb.update([value])
+                    steady_pose.append(ps_stb.state[0])
+                steady_pose = np.reshape(steady_pose, (-1, 3))
 
-            # Uncomment following line to draw stabile pose annotation on frame.
-            pose_estimator.draw_annotation_box(
-                frame, steady_pose[0], steady_pose[1], color=(128, 255, 128))
+                # Uncomment following line to draw pose annotation on frame.
+                # pose_estimator.draw_annotation_box(
+                #     frame, pose[0], pose[1], color=(255, 128, 128))
 
-            # Uncomment following line to draw head axes on frame.
-            # pose_estimator.draw_axes(frame, steady_pose[0], steady_pose[1])
+                # Uncomment following line to draw stabile pose annotation on frame.
+                pose_estimator.draw_annotation_box(
+                    frame, steady_pose[0], steady_pose[1], color=(128, 255, 128))
 
-        # Show preview.
-        # cv2.imshow("Preview", frame)
-        # if cv2.waitKey(10) == 27:
-        #     break
-        if args.out != None:
-            output_movie.write(frame)
-        else:
-            cv2.imshow("Preview", frame)
+                # Uncomment following line to draw head axes on frame.
+                # pose_estimator.draw_axes(frame, steady_pose[0], steady_pose[1])
 
-        cnt = cnt + 1
-        if cnt % 100 == 0:
-            print(str(cnt), flush=True)
+            # Show preview.
+            # cv2.imshow("Preview", frame)
+            # if cv2.waitKey(10) == 27:
+            #     break
+            if args.out != None:
+                output_movie.write(frame)
+            else:
+                cv2.imshow("Preview", frame)
+
+            cnt = cnt + 1
+            if cnt % 100 == 0:
+                print(str(cnt), flush=True)
 
     # Clean up the multiprocessing process.
     box_process.terminate()
