@@ -29,6 +29,8 @@ parser.add_argument("--video", type=str, default=None,
                     help="Video file to be processed.")
 parser.add_argument("--cam", type=int, default=None,
                     help="The webcam index.")
+parser.add_argument("--out", type=str, default=None,
+                    help="Video output path. ")
 args = parser.parse_args()
 
 
@@ -69,6 +71,10 @@ def main():
     height, width = sample_frame.shape[:2]
     pose_estimator = PoseEstimator(img_size=(height, width))
 
+    if args.out != None:
+        fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+        output_movie = cv2.VideoWriter(args.out, fourcc, 30, (width, height))
+
     # Introduce scalar stabilizers for pose.
     pose_stabilizers = [Stabilizer(
         state_num=2,
@@ -77,6 +83,8 @@ def main():
         cov_measure=0.1) for _ in range(6)]
 
     tm = cv2.TickMeter()
+
+    cnt = 0
 
     while True:
         # Read frame, crop it, flip it, suits your needs.
@@ -147,13 +155,22 @@ def main():
             # pose_estimator.draw_axes(frame, steady_pose[0], steady_pose[1])
 
         # Show preview.
-        cv2.imshow("Preview", frame)
-        if cv2.waitKey(10) == 27:
-            break
+        # cv2.imshow("Preview", frame)
+        # if cv2.waitKey(10) == 27:
+        #     break
+        if args.out != None:
+            output_movie.write(frame)
+        else:
+            cv2.imshow("Preview", frame)
+
+        cnt = cnt + 1
+        if cnt % 100 == 0:
+            print(str(cnt), flush=True)
 
     # Clean up the multiprocessing process.
     box_process.terminate()
     box_process.join()
+    cv2.destroyAllWindows()
 
 
 if __name__ == '__main__':
